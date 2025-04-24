@@ -1,0 +1,161 @@
+import java.io.*;
+import java.util.*;
+import java.util.concurrent.*;
+
+class Book implements Serializable {
+    private String title;
+    private String author;
+    private boolean isBorrowed;
+
+    public Book(String title, String author) {
+        this.title = title;
+        this.author = author;
+        this.isBorrowed = false;
+    }
+
+    public String getTitle() { return title; }
+    public boolean isBorrowed() { return isBorrowed; }
+
+    public void borrowBook() {
+        if (!isBorrowed) {
+            isBorrowed = true;
+        } else {
+            throw new IllegalStateException("Book already borrowed.");
+        }
+    }
+
+    public void returnBook() {
+        if (isBorrowed) {
+            isBorrowed = false;
+        } else {
+            throw new IllegalStateException("Book was not borrowed.");
+        }
+    }
+
+    @Override
+    public String toString() {
+        return title + " by " + author + (isBorrowed ? " [Borrowed]" : " [Available]");
+    }
+}
+
+class Member implements Serializable {
+    private String name;
+    private List<Book> borrowedBooks = new ArrayList<>();
+
+    public Member(String name) {
+        this.name = name;
+    }
+
+    public void borrowBook(Book book) {
+        book.borrowBook();
+        borrowedBooks.add(book);
+    }
+
+    public void returnBook(Book book) {
+        book.returnBook();
+        borrowedBooks.remove(book);
+    }
+
+    @Override
+    public String toString() {
+        return name + " | Borrowed Books: " + borrowedBooks.size();
+    }
+}
+
+class Library implements Serializable {
+    private List<Book> books = new ArrayList<>();
+    private List<Member> members = new ArrayList<>();
+
+    public void addBook(Book book) {
+        books.add(book);
+    }
+
+    public void addMember(Member member) {
+        members.add(member);
+    }
+
+    public Optional<Book> findBook(String title) {
+        return books.stream().filter(b -> b.getTitle().equalsIgnoreCase(title) && !b.isBorrowed()).findFirst();
+    }
+
+    public Member getMember(String name) {
+        return members.stream().filter(m -> m.toString().contains(name)).findFirst().orElse(null);
+    }
+
+    public void saveLibrary(String filename) throws IOException {
+        try (ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(filename))) {
+            out.writeObject(this);
+        }
+    }
+
+    public static Library loadLibrary(String filename) throws IOException, ClassNotFoundException {
+        try (ObjectInputStream in = new ObjectInputStream(new FileInputStream(filename))) {
+            return (Library) in.readObject();
+        }
+    }
+
+    public void printStatus() {
+        System.out.println("Books:");
+        books.forEach(System.out::println);
+        System.out.println("\nMembers:");
+        members.forEach(System.out::println);
+    }
+}
+
+public class LibraryApp {
+    private static final ExecutorService executor = Executors.newFixedThreadPool(2);
+
+    public static void main(String[] args) {
+        Library library = new Library();
+
+        // Add sample data
+        library.addBook(new Book("1984", "George Orwell"));
+        library.addBook(new Book("The Hobbit", "J.R.R. Tolkien"));
+        library.addMember(new Member("Alice"));
+        library.addMember(new Member("Bob"));
+
+        Runnable borrowTask = () -> {
+            Member member = library.getMember("Alice");
+            library.findBook("1984").ifPresent(book -> {
+                try {
+                    member.borrowBook(book);
+                    System.out.println("Alice borrowed: " + book.getTitle());
+                } catch (Exception e) {
+                    System.out.println("Error: " + e.getMessage());
+                }
+            });
+        };
+
+        Runnable returnTask = () -> {
+            Member member = library.getMember("Alice");
+            Book book = new Book("1984", "George Orwell");
+            try {
+                member.returnBook(book);
+                System.out.println("Alice returned: " + book.getTitle());
+            } catch (Exception e) {
+                System.out.println("Return failed: " + e.getMessage());
+            }
+        };
+
+        executor.submit(borrowTask);
+        executor.submit(returnTask);
+
+        executor.shutdown();
+
+        try {
+            library.saveLibrary("library.ser");
+            System.out.println("\nLibrary saved to file.");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        // Load from file
+        try {
+            Library loadedLibrary = Library.loadLibrary("library.ser");
+            System.out.println("\nLoaded Library:");
+            loadedLibrary.printStatus();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
